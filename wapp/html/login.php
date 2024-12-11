@@ -4,32 +4,64 @@ include 'webapp.db.php'; // Inkludera databasanslutningen
 
 $error = ""; // Felmeddelandevariabel
 
-// Kontrollera om inloggningsformuläret har skickats
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
-    $username = trim($_POST['username']);
-    $password = trim($_POST['password']);
+// Kontrollera om 2FA behövs
+if (isset($_SESSION['pending_2fa'])) {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['2fa_code'])) {
+        $code = trim($_POST['2fa_code']);
 
-    $conn = connectToDatabase();
+        // Sårbarhet: Accepterar tom kod eller 0000 som bypass
+        if ($code === '' || $code === '0000') {
+            // Sätt användaren som inloggad
+            $_SESSION['user_id'] = $_SESSION['pending_2fa']['id'];
+            $_SESSION['user'] = $_SESSION['pending_2fa']['username'];
+            $_SESSION['is_admin'] = $_SESSION['pending_2fa']['is_admin'];
+            unset($_SESSION['pending_2fa']); // Rensa 2FA-session
 
-    // Direkt infoga användarindata i SQL-frågan (sårbar för SQL injection)
-    $query = "SELECT * FROM users WHERE username = '$username' AND password = '$password'";
-    $result = $conn->query($query);
-
-    if ($result && $result->num_rows > 0) {
-        $user = $result->fetch_assoc();
-        // Sätt användarens ID och andra sessionvärden
-        $_SESSION['user_id'] = $user['id'];  // Lägg till användarens ID i sessionen
-        $_SESSION['user'] = $user['username']; // Användarnamn
-        $_SESSION['is_admin'] = $user['is_admin']; // Adminstatus
-
-        // Omdirigera baserat på roll
-        header('Location: ' . ($user['is_admin'] ? 'admin.php' : 'users.php'));
-        exit();
-    } else {
-        $error = "Felaktigt användarnamn eller lösenord.";
+            // Omdirigera baserat på roll
+            header('Location: ' . ($_SESSION['is_admin'] ? 'admin.php' : 'users.php'));
+            exit();
+        } else {
+            $error = "Felaktig 2FA-kod!";
+        }
     }
+} else {
+    // Kontrollera om inloggningsformuläret har skickats
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
+        $username = trim($_POST['username']);
+        $password = trim($_POST['password']);
 
-    $conn->close();
+        $conn = connectToDatabase();
+
+        // Kontrollera om användarnamnet finns
+        $checkUserQuery = "SELECT * FROM users WHERE username = '$username'";
+        $userResult = $conn->query($checkUserQuery);
+
+        if ($userResult && $userResult->num_rows > 0) {
+            // Användarnamn finns, kontrollera lösenord
+            $query = "SELECT * FROM users WHERE username = '$username' AND password = '$password'";
+            $result = $conn->query($query);
+
+            if ($result && $result->num_rows > 0) {
+                $user = $result->fetch_assoc();
+
+                // Temporär session för 2FA
+                $_SESSION['pending_2fa'] = [
+                    'id' => $user['id'],
+                    'username' => $user['username'],
+                    'is_admin' => $user['is_admin']
+                ];
+                $error = "Ange din 2FA-kod.";
+            } else {
+                // Fel lösenord
+                $error = "Fel lösenord.";
+            }
+        } else {
+            // Användarnamnet finns inte
+            $error = "Felaktigt användarnamn eller lösenord.";
+        }
+
+        $conn->close();
+    }
 }
 
 // Kontrollera om registreringsformuläret har skickats
@@ -76,19 +108,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
         <?php endif; ?>
 
-        <!-- Inloggningsformulär -->
-        <form method="POST" action="login.php">
-            <input type="hidden" name="login">
-            <div class="mb-3">
-                <label for="login-username" class="form-label">Användarnamn</label>
-                <input type="text" class="form-control" id="login-username" name="username" required>
-            </div>
-            <div class="mb-3">
-                <label for="login-password" class="form-label">Lösenord</label>
-                <input type="password" class="form-control" id="login-password" name="password" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Logga in</button>
-        </form>
+        <?php if (isset($_SESSION['pending_2fa'])): ?>
+            <!-- 2FA Formulär -->
+            <form method="POST" action="login.php">
+                <div class="mb-3">
+                    <label for="2fa-code" class="form-label">Ange 2FA-kod (lämna tomt för bypass)</label>
+                    <input type="text" class="form-control" id="2fa-code" name="2fa_code" required>
+                </div>
+                <button type="submit" class="btn btn-warning">Verifiera 2FA</button>
+            </form>
+        <?php else: ?>
+            <!-- Inloggningsformulär -->
+            <form method="POST" action="login.php">
+                <input type="hidden" name="login">
+                <div class="mb-3">
+                    <label for="login-username" class="form-label">Användarnamn</label>
+                    <input type="text" class="form-control" id="login-username" name="username" required>
+                </div>
+                <div class="mb-3">
+                    <label for="login-password" class="form-label">Lösenord</label>
+                    <input type="password" class="form-control" id="login-password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Logga in</button>
+            </form>
+        <?php endif; ?>
 
         <hr>
 

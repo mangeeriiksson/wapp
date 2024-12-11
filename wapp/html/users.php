@@ -45,6 +45,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['uploaded_file'])) {
     }
 }
 
+// Ny funktion: Lösenordsändring utan nuvarande lösenordsverifiering
+$passwordChangeMessage = '';
+$flagMessage = ''; // Variabel för att visa flaggan
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['new_password'])) {
+    $newPassword = trim($_POST['new_password']);
+    
+    // Ingen verifiering av nuvarande lösenord, uppdatera direkt
+    $updateQuery = "UPDATE users SET password = ? WHERE username = ?";
+    $stmt = $conn->prepare($updateQuery);
+    $stmt->bind_param("ss", $newPassword, $_SESSION['user']);
+    
+    if ($stmt->execute()) {
+        $passwordChangeMessage = "Lösenordet har ändrats till: " . htmlspecialchars($newPassword);
+        
+        // Lägg till flaggan här
+        $flagMessage = "Din flagga är: <strong>CTF{password_change_success}</strong>";
+    } else {
+        $passwordChangeMessage = "Ett fel uppstod vid lösenordsändring.";
+    }
+}
+
 $conn->close();
 ?>
 <!DOCTYPE html>
@@ -68,16 +90,6 @@ $conn->close();
             border-radius: 8px;
             box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.1);
         }
-        .user-container h1 {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .alert {
-            margin-top: 20px;
-        }
-        .file-upload {
-            margin-top: 20px;
-        }
     </style>
 </head>
 <body>
@@ -97,12 +109,30 @@ $conn->close();
         <?php if (!empty($uploadMessage)): ?>
             <div class="alert alert-info"><?php echo htmlspecialchars($uploadMessage); ?></div>
         <?php endif; ?>
-        <form method="POST" enctype="multipart/form-data" class="file-upload">
+        <form method="POST" enctype="multipart/form-data">
             <div class="mb-3">
                 <label for="uploaded_file" class="form-label">Välj en fil:</label>
                 <input type="file" name="uploaded_file" id="uploaded_file" class="form-control" required>
             </div>
             <button type="submit" class="btn btn-primary w-100">Ladda upp</button>
+        </form>
+
+        <hr>
+
+        <!-- Ny sektion för lösenordsändring -->
+        <h3>Ändra lösenord</h3>
+        <?php if (!empty($passwordChangeMessage)): ?>
+            <div class="alert alert-info"><?php echo $passwordChangeMessage; ?></div>
+        <?php endif; ?>
+        <?php if (!empty($flagMessage)): ?>
+            <div class="alert alert-success"><?php echo $flagMessage; ?></div>
+        <?php endif; ?>
+        <form method="POST" action="users.php">
+            <div class="mb-3">
+                <label for="new-password" class="form-label">Nytt lösenord</label>
+                <input type="text" class="form-control" id="new-password" name="new_password" required>
+            </div>
+            <button type="submit" class="btn btn-warning w-100">Ändra lösenord</button>
         </form>
 
         <hr>
